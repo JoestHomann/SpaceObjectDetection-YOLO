@@ -2,10 +2,10 @@
 .venv/
 
 # Spark Datasets
-data/
+/data/
 
 # Training Outputs
-runs/
+/runs/
 
 # Trained Model Weights And Exported Models
 *.pt
