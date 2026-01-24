@@ -45,6 +45,7 @@ Responsibilities:
 
 NO model/dataset/loss definitions here - only wiring.
 """
+from pathlib import Path
 
 from typing import Dict
 import torch
@@ -266,15 +267,10 @@ def fit(cfg: RunConfig) -> None:
     best_acc = 0.0
 
     # Resume if last checkpoint exists
-    if cfg.train.ckpt_last_path is not None:
-        meta = load_checkpoint(
-            cfg.train.ckpt_last_path,
-            model,
-            optimizer,
-        )
-        if meta is not None:
-            start_epoch = meta.get("epoch", 0) + 1
-            best_acc = meta.get("best_acc", 0.0)
+    if cfg.train.ckpt_last_path is not None and Path(cfg.train.ckpt_last_path).is_file():
+        meta = load_checkpoint(cfg.train.ckpt_last_path, model, optimizer)
+        start_epoch = int(meta.get("epoch", 0)) + 1
+        best_acc = float(meta.get("best_acc", 0.0))
 
     # Train epochs and validate
     for epoch in range(start_epoch, cfg.train.epochs):
@@ -291,6 +287,17 @@ def fit(cfg: RunConfig) -> None:
             model,
             loaders["val"],
             cfg,
+        )
+
+        # Print training and validation metrics
+        print(
+            f"epoch {epoch+1}/{cfg.train.epochs} | "
+            f"train: total={train_metrics['total_loss']:.4f} "
+            f"center={train_metrics['Loss_center']:.4f} "
+            f"box={train_metrics['Loss_box']:.4f} "
+            f"class={train_metrics['Loss_class']:.4f} | "
+            f"val: acc={val_metrics['accuracy']:.4f} | "
+            f"best_acc={best_acc:.4f}"
         )
 
         acc = val_metrics["accuracy"]

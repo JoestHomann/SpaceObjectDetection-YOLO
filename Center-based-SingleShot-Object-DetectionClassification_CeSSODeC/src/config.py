@@ -86,7 +86,7 @@ class ModelConfig:
     feature_stride: int
         Feature stride for the model (should match DataConfig stride_S).
     """
-    backbone: str = "resnet18"
+    backbone: str = "resnet18_imagenet"
     num_classes: int = 11  
     feature_stride: int = 32    # TODO: Remove redundancy? # TODO: Rename to featureStride_model?
 
