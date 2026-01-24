@@ -31,11 +31,11 @@
 # 2026 in the Applied Machine Learning Course Project
 
 
-# Was macht die train.py?
-# Ganz einfach, sie verbindet Dataloader, Model und Loss Function miteinander.
+# TODO: IMPORTANT: Better explain what this file does/what the functions do
+
 
 """
-Training orchestration for center_singleobj_v1_modular.
+Training loop and related functions.
 
 Responsibilities:
 - Build dataloaders
@@ -47,7 +47,7 @@ NO model/dataset/loss definitions here - only wiring.
 """
 from pathlib import Path
 
-from typing import Dict
+from typing import Any, Dict
 import torch
 from torch.utils.data import DataLoader
 from torch.cuda.amp import autocast, GradScaler
@@ -193,48 +193,97 @@ def train_one_epoch(
 @torch.no_grad()
 def validate(
     model: torch.nn.Module,
+    loss_fn: torch.nn.Module,
     loader: DataLoader,
     cfg: RunConfig,
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """
-    Validation using v1 decode:
-    - center: argmax over grid
-    - class: argmax at that cell
-    Metric:
-    - classification accuracy
+    Validation:
+    - Compute val loss (same loss as training)
+    - Decode center argmax and class argmax at that cell
+    - Metrics: accuracy, center_acc, per-class accuracy
     """
-    model.eval()  # Model in evaluation mode
+    model.eval()
     device = cfg.train.device
 
+    # Accuracy
     correct = 0
     total = 0
 
-    # Iterate over validation batches
-    for x, ij_gt, _, cls_gt in loader:
+    # Center hit rate
+    center_correct = 0
+
+    # Per-class accuracy
+    num_classes = int(getattr(cfg.model, "num_classes", 11))
+    correct_per_class = torch.zeros(num_classes, dtype=torch.long)
+    total_per_class = torch.zeros(num_classes, dtype=torch.long)
+
+    # Val loss accumulation (same keys as train_one_epoch)
+    loss_sums = {"Loss_center": 0.0, "Loss_box": 0.0,
+                 "Loss_class": 0.0, "Loss_total": 0.0}
+    n_batches = 0
+
+    for x, ij_gt, bbox_gt_norm, cls_gt in loader:
         x = x.to(device)
         ij_gt = ij_gt.to(device)
+        bbox_gt_norm = bbox_gt_norm.to(device)
         cls_gt = cls_gt.to(device)
 
-        center_pred, _, cls_pred = model(x)
+        center_pred, box_pred, cls_pred = model(x)
 
+        # Val losses
+        losses = loss_fn(
+            center_preds=center_pred,
+            box_preds=box_pred,
+            class_preds=cls_pred,
+            gridIndices_gt=ij_gt,
+            bbox_gt_norm=bbox_gt_norm,
+            cls_gt=cls_gt,
+        )
+        for k in loss_sums:
+            loss_sums[k] += float(losses[k].item())
+        n_batches += 1
+
+        # Decode center argmax
         B = x.shape[0]
-
-        # flatten center heatmap
         center_flat = center_pred[:, 0].reshape(B, -1)
         idx = torch.argmax(center_flat, dim=1)
 
-        H, W = cfg.grid.H, cfg.grid.W
+        W = cfg.grid.W
         i_hat = idx // W
         j_hat = idx % W
 
-        cls_logits = cls_pred[torch.arange(B), :, i_hat, j_hat]
+        # Center hit
+        center_correct += ((i_hat == ij_gt[:, 0])
+                           & (j_hat == ij_gt[:, 1])).sum().item()
+
+        # Class at predicted center
+        cls_logits = cls_pred[torch.arange(B, device=device), :, i_hat, j_hat]
         cls_hat = torch.argmax(cls_logits, dim=1)
 
         correct += (cls_hat == cls_gt).sum().item()
         total += B
 
+        # Per-class
+        for c in range(num_classes):
+            mask = (cls_gt == c)
+            total_per_class[c] += mask.sum().item()
+            correct_per_class[c] += ((cls_hat == cls_gt) & mask).sum().item()
+
     acc = correct / max(total, 1)
-    return {"accuracy": acc}
+    center_acc = center_correct / max(total, 1)
+
+    val_losses = {k: v / max(n_batches, 1) for k, v in loss_sums.items()}
+
+    per_class_acc = (correct_per_class.float(
+    ) / torch.clamp(total_per_class.float(), min=1.0)).cpu().tolist()
+
+    return {
+        "accuracy": acc,
+        "center_acc": center_acc,
+        "per_class_acc": per_class_acc,
+        **val_losses,
+    }
 
 
 # ---------------------------------------------------------
@@ -253,6 +302,15 @@ def fit(cfg: RunConfig) -> None:
     device = torch.device(cfg.train.device)  # Device from config
 
     loaders = build_loaders(cfg)  # Build data loaders
+
+    # Print config summary
+    print(
+    f"device={cfg.train.device} | epochs={cfg.train.epochs} | batch_size={cfg.train.batch_size} | "
+    f"lr={cfg.train.lr} | weight_decay={cfg.train.weight_decay} | amp={cfg.train.activateAMP} | "
+    f"num_workers={cfg.train.num_workers} | imgsz={cfg.grid.imgsz} | stride_S={cfg.grid.stride_S}"
+    )
+    print(f"train_batches={len(loaders['train'])} | val_batches={len(loaders['val'])}")
+
 
     # Initialize model, loss function, optimizer
     model = CeSSODeCModel(cfg.model, cfg.grid).to(device)
@@ -285,18 +343,20 @@ def fit(cfg: RunConfig) -> None:
 
         val_metrics = validate(
             model,
+            loss_fn,
             loaders["val"],
             cfg,
         )
 
-        # Print training and validation metrics
         print(
             f"epoch {epoch+1}/{cfg.train.epochs} | "
-            f"train: total={train_metrics['total_loss']:.4f} "
+            f"train: total={train_metrics['Loss_total']:.4f} "
             f"center={train_metrics['Loss_center']:.4f} "
             f"box={train_metrics['Loss_box']:.4f} "
             f"class={train_metrics['Loss_class']:.4f} | "
-            f"val: acc={val_metrics['accuracy']:.4f} | "
+            f"val: acc={val_metrics['accuracy']:.4f} "
+            f"center_acc={val_metrics['center_acc']:.4f} "
+            f"val_total={val_metrics['Loss_total']:.4f} | "
             f"best_acc={best_acc:.4f}"
         )
 
@@ -315,9 +375,10 @@ def fit(cfg: RunConfig) -> None:
             },
         )
 
-        # save best
+        # Save best checkpoint
         if acc > best_acc and cfg.train.ckpt_best_path is not None:
             best_acc = acc
+            print(f"  new best: epoch={epoch+1} | best_acc={best_acc:.4f} -> saving best checkpoint")
             save_checkpoint(
                 cfg.train.ckpt_best_path,
                 model,
