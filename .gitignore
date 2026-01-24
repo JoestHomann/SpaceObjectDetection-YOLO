@@ -4,6 +4,9 @@
 # Spark Datasets
 /data/
 
+# Training outputs
+runs/
+
 # Python bytecode
 __pycache__/
 *.py[cod]
