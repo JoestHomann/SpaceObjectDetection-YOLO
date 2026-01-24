@@ -189,7 +189,6 @@ def train_one_epoch(
 # VALIDATION
 # ---------------------------------------------------------
 
-
 @torch.no_grad()
 def validate(
     model: torch.nn.Module,
