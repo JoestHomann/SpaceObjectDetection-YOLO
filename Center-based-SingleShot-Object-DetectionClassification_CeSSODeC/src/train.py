@@ -45,30 +45,28 @@ Responsibilities:
 
 NO model/dataset/loss definitions here - only wiring.
 """
+# QoL imports
 from pathlib import Path
-
 from typing import Any, Dict
+
+# Torch imports
 import torch
 from torch.utils.data import DataLoader
 from torch.cuda.amp import autocast, GradScaler
 
+# Project imports
 from config import RunConfig
 from dataset import SingleObjectYoloDataset
 from model import CeSSODeCModel
 from losses import SingleObjectLoss
 from checkpointIO import save_checkpoint, load_checkpoint
 
+# For TensorBoard logging
+from torch.utils.tensorboard import SummaryWriter
+
 # ---------------------------------------------------------
 # DATALOADERS
 # ---------------------------------------------------------
-
-from torch.utils.data import DataLoader
-from dataset import SingleObjectYoloDataset
-from config import RunConfig
-
-# Was macht der Dataloader?
-# Er lädt die Daten in Batches und bereitet sie für das Training vor.
-
 
 def build_loaders(cfg: RunConfig) -> dict[str, DataLoader]:
     """
@@ -296,6 +294,10 @@ def fit(cfg: RunConfig) -> None:
     - run epochs
     - save last & best checkpoints
     """
+    # TensorBoard Writer
+    writer = SummaryWriter(log_dir="runs/CeSSODeC") # TODO: Make dynamic with timestamp or so
+
+
     torch.manual_seed(cfg.train.seed)  # Set seed for reproducibility
 
     device = torch.device(cfg.train.device)  # Device from config
@@ -359,6 +361,20 @@ def fit(cfg: RunConfig) -> None:
             f"best_acc={best_acc:.4f}"
         )
 
+        # TensorBoard logging
+
+        # Train metrics
+        writer.add_scalar("train/Loss_total", train_metrics["Loss_total"], epoch)
+        writer.add_scalar("train/Loss_center", train_metrics["Loss_center"], epoch)
+        writer.add_scalar("train/Loss_box", train_metrics["Loss_box"], epoch)
+        writer.add_scalar("train/Loss_class", train_metrics["Loss_class"], epoch)
+        # Val metrics
+        writer.add_scalar("val/Loss_total", val_metrics["Loss_total"], epoch)
+        writer.add_scalar("val/accuracy", val_metrics["accuracy"], epoch)
+        writer.add_scalar("val/center_acc", val_metrics["center_acc"], epoch)
+        writer.flush() # Ensure data is written to disk
+
+
         acc = val_metrics["accuracy"]
 
         # save last
@@ -387,6 +403,12 @@ def fit(cfg: RunConfig) -> None:
                     "best_acc": best_acc,
                 },
             )
+    # Close TensorBoard writer
+    writer.close()
+
+    return
+
+
 
 
 # def build_model_loss_optim(cfg: RunConfig) -> Tuple[CenterSingleObjNet, CenterSingleObjLoss, torch.optim.Optimizer]:
