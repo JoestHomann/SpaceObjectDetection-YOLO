@@ -6,38 +6,52 @@ import shutil
 
 # File paths as variables
 dataset_path = Path("D:/SpaceObjectDetection-YOLO/data/spark-2022-stream-1")      # Spark 2022 Stream 1 Dataset Directory
-labels_path = dataset_path / "labels"                            # Labels Directory
+labels_path = dataset_path / "labels"                                           # Labels Directory
 
-train_csv_path = labels_path / "train.csv"                       # Training Dataset Labels CSV File
-val_csv_path = labels_path / "val.csv"                           # Validation Dataset Labels CSV File
+train_csv_path = labels_path / "train.csv"                                      # Training Dataset Labels CSV File
+val_csv_path   = labels_path / "val.csv"                                        # Validation Dataset Labels CSV File
 
-train_img_path = dataset_path / "train" / "train"                # Training Images Directory
-val_img_path = dataset_path / "val" / "val"                      # Validation Images Directory
+train_img_path = dataset_path / "train" / "train"                               # Training Images Directory
+val_img_path   = dataset_path / "val" / "val"                                   # Validation Images Directory
 
-output_path = dataset_path / "labels"                            # Output Directory For YOLO Formatted Labels
-output_train_path = output_path / "train"                        # Output Directory For Training YOLO Labels
-output_val_path = output_path / "val"                            # Output Directory For Validation YOLO Labels
+output_path       = dataset_path / "labels"                                     # Output Directory For YOLO Formatted Labels
+output_train_path = output_path / "train"                                       # Output Directory For Training YOLO Labels
+output_val_path   = output_path / "val"                                         # Output Directory For Validation YOLO Labels
 
 
-# Open the CSV file and read its contents into a list of dictionaries
-def read_csv_rows(filepath):
-    with filepath.open('r', newline='', encoding='utf-8') as csvfile:
+def read_csv_rows(filepath: Path):
+    with filepath.open("r", newline="", encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
-        csv_list = list(reader)
-    return csv_list
+        return list(reader)
 
-# Convert bbox from [x1, y1, x2, y2] to float values
-def parse_bbox_xyxy(bbox_str):
+# Spark 2022 Stream 1 bbox appears to be stored as [y1, x1, y2, x2] (yxyx), not [x1, y1, x2, y2].
+def parse_bbox_spark_yxyx_to_xyxy(bbox_str: str):
     # bbox_str example: "[183, 311, 657, 415]"
-    x1, y1, x2, y2 = ast.literal_eval(bbox_str)
+    y1, x1, y2, x2 = ast.literal_eval(bbox_str)
     return float(x1), float(y1), float(x2), float(y2)
 
-# Get image size (width, height) from image file
-def get_image_size(image_path):
+def get_image_size(image_path: Path):
     with Image.open(image_path) as img:
         return img.size  # (width, height)
 
-# Convert bbox from [x1, y1, x2, y2] to YOLO normalized format [xc, yc, bw, bh]
+def clamp(v, lo, hi):
+    return lo if v < lo else hi if v > hi else v
+
+def sanitize_xyxy(x1, y1, x2, y2, w, h):
+    # Ensure correct ordering
+    if x2 < x1:
+        x1, x2 = x2, x1
+    if y2 < y1:
+        y1, y2 = y2, y1
+
+    # Clamp to image bounds
+    x1 = clamp(x1, 0.0, w - 1.0)
+    x2 = clamp(x2, 0.0, w - 1.0)
+    y1 = clamp(y1, 0.0, h - 1.0)
+    y2 = clamp(y2, 0.0, h - 1.0)
+
+    return x1, y1, x2, y2
+
 def xyxy_to_yolo_norm(x1, y1, x2, y2, w, h):
     bw = x2 - x1
     bh = y2 - y1
@@ -45,26 +59,27 @@ def xyxy_to_yolo_norm(x1, y1, x2, y2, w, h):
     yc = y1 + bh / 2.0
     return xc / w, yc / h, bw / w, bh / h
 
-# Build class map from training and validation rows
 def build_class_map(train_rows, val_rows):
-    classes = sorted({r["class"] for r in (train_rows + val_rows) if r["class"]})
+    classes = sorted({r["class"] for r in (train_rows + val_rows) if r.get("class")})
     return {c: i for i, c in enumerate(classes)}
 
-# Write class names to file
-def write_class_names(out_root, class_map):
+def write_class_names(out_root: Path, class_map):
     names = [c for c, _ in sorted(class_map.items(), key=lambda kv: kv[1])]
     (out_root / "class_names.txt").write_text("\n".join(names) + "\n", encoding="utf-8")
 
-
-def csv_filename_to_jpg_path(img_dir, csv_filename):
+def csv_filename_to_jpg_path(img_dir: Path, csv_filename: str):
+    # In Spark CSV, filename might be "img0123.png" or "img0123.jpg" etc.
+    # Your dataset images are .jpg, so we map by stem -> stem.jpg
     stem = Path(csv_filename).stem
     return img_dir / f"{stem}.jpg"
 
-def write_yolo_labels(rows, img_dir, out_dir, class_map):
+def write_yolo_labels(rows, img_dir: Path, out_dir: Path, class_map):
     # Group annotations by filename
     by_file = {}
     for r in rows:
-        fn = r["filename"]
+        fn = r.get("filename")
+        if not fn:
+            continue
         by_file.setdefault(fn, []).append(r)
 
     missing_images = 0
@@ -73,7 +88,6 @@ def write_yolo_labels(rows, img_dir, out_dir, class_map):
 
     total_files = len(by_file)
     for i, (fn, ann_list) in enumerate(by_file.items(), start=1):
-        # Progress print every 1000 files
         if i % 1000 == 0 or i == 1 or i == total_files:
             print(f"[{i}/{total_files}] processed={written_files} missing={missing_images} boxes={written_boxes}")
 
@@ -86,14 +100,25 @@ def write_yolo_labels(rows, img_dir, out_dir, class_map):
         lines = []
 
         for ann in ann_list:
-            cls = ann["class"]
-            bbox_str = ann["bbox"]
+            cls = ann.get("class")
+            bbox_str = ann.get("bbox")
 
-            x1, y1, x2, y2 = parse_bbox_xyxy(bbox_str)
+            if not cls or not bbox_str:
+                continue
+
+            # Spark bbox: [y1, x1, y2, x2] -> convert to xyxy
+            x1, y1, x2, y2 = parse_bbox_spark_yxyx_to_xyxy(bbox_str)
+            x1, y1, x2, y2 = sanitize_xyxy(x1, y1, x2, y2, w, h)
+
             xc, yc, bw, bh = xyxy_to_yolo_norm(x1, y1, x2, y2, w, h)
 
             # Skip degenerate boxes
             if bw <= 0.0 or bh <= 0.0:
+                continue
+
+            # Skip boxes that end up outside [0,1] due to bad input (after clamp they should be OK,
+            # but bw/bh could still be near-zero)
+            if not (0.0 <= xc <= 1.0 and 0.0 <= yc <= 1.0 and 0.0 <= bw <= 1.0 and 0.0 <= bh <= 1.0):
                 continue
 
             class_id = class_map[cls]
@@ -109,24 +134,21 @@ def write_yolo_labels(rows, img_dir, out_dir, class_map):
     print("Label files written:", written_files)
     print("Total boxes written:", written_boxes)
 
-def ensure_yolo_layout_and_copy_files(dataset_root):
-    # YOLO layout
+def ensure_yolo_layout_and_copy_files(dataset_root: Path):
     images_train = dataset_root / "images" / "train"
     images_val   = dataset_root / "images" / "val"
     labels_train = dataset_root / "labels" / "train"
     labels_val   = dataset_root / "labels" / "val"
 
-    # Create target directories
     images_train.mkdir(parents=True, exist_ok=True)
     images_val.mkdir(parents=True, exist_ok=True)
     labels_train.mkdir(parents=True, exist_ok=True)
     labels_val.mkdir(parents=True, exist_ok=True)
 
-    # Source directories
     src_images_train = dataset_root / "train" / "train"
     src_images_val   = dataset_root / "val" / "val"
 
-    def copy_all_files(src_dir, dst_dir, pattern="*"):
+    def copy_all_files(src_dir: Path, dst_dir: Path, pattern="*"):
         if not src_dir.exists():
             print("Missing source:", src_dir)
             return 0
@@ -139,17 +161,14 @@ def ensure_yolo_layout_and_copy_files(dataset_root):
                     count += 1
         return count
 
-    # Copy images
     n_train_imgs = copy_all_files(src_images_train, images_train, "*.jpg")
     n_val_imgs   = copy_all_files(src_images_val, images_val, "*.jpg")
 
-    # Copy class names to configs
     class_names_src = dataset_root / "labels" / "class_names.txt"
     class_names_dst = Path("configs") / "class_names.txt"
     if class_names_src.exists():
         class_names_dst.parent.mkdir(parents=True, exist_ok=True)
-        if not class_names_dst.exists():
-            shutil.copy2(class_names_src, class_names_dst)
+        shutil.copy2(class_names_src, class_names_dst)
 
     print("YOLO layout copied:")
     print(" train images copied:", n_train_imgs)
@@ -157,59 +176,42 @@ def ensure_yolo_layout_and_copy_files(dataset_root):
     print(" images/train dir:", images_train)
     print(" labels/train dir:", labels_train)
 
-
 def main():
-
-    # Resolve Dataset Path
     print("Dataset Path:", dataset_path.resolve())
 
-    # Verify Existence Of Paths
     print("Training CSV Path:", train_csv_path, "Exists:", train_csv_path.exists())
     print("Validation CSV Path:", val_csv_path, "Exists:", val_csv_path.exists())
     print("Training Images Path:", train_img_path, "Exists:", train_img_path.exists())
     print("Validation Images Path:", val_img_path, "Exists:", val_img_path.exists())
 
-    # Resolve Output Path
     print("Output Path:", output_path.resolve())
-
-    # Verify Existence Of Output Paths
     print("Output Training Path:", output_train_path, "Exists:", output_train_path.exists())
     print("Output Validation Path:", output_val_path, "Exists:", output_val_path.exists())
 
-
-    # Load CSV files
     train_rows = read_csv_rows(train_csv_path)
     val_rows   = read_csv_rows(val_csv_path)
 
-    # Inspect columns
     print("Train CSV columns:", list(train_rows[0].keys()) if train_rows else "EMPTY")
     print("Val CSV columns:  ", list(val_rows[0].keys()) if val_rows else "EMPTY")
-
-    # Preview a first row of each CSV
     print("Train first row:", train_rows[0] if train_rows else "EMPTY")
     print("Val first row:  ", val_rows[0] if val_rows else "EMPTY")
 
-    # Create output directories
     output_path.mkdir(parents=True, exist_ok=True)
     output_train_path.mkdir(parents=True, exist_ok=True)
     output_val_path.mkdir(parents=True, exist_ok=True)
 
-    # Build class map and write class names file
     class_map = build_class_map(train_rows, val_rows)
     write_class_names(output_path, class_map)
     print("Number of classes:", len(class_map))
 
-    # Convert and write YOLO formatted labels
     print("Converting train -> YOLO...")
     write_yolo_labels(train_rows, train_img_path, output_train_path, class_map)
     print("Converting val -> YOLO...")
     write_yolo_labels(val_rows, val_img_path, output_val_path, class_map)
 
-    # Create YOLO standard folder layout
     ensure_yolo_layout_and_copy_files(dataset_path)
 
     print("Done.")
-
 
 if __name__ == "__main__":
     main()
