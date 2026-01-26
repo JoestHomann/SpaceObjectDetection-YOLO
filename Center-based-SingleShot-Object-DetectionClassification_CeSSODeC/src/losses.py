@@ -125,8 +125,9 @@ class SingleObjectLoss(nn.Module):
         center_target[b, 0, i, j] = 1.0                         # Set ground truth center locations (i, j) in the matrix to 1 for each batch element b   
 
         # Positive counter weight to balance out the many negative samples
-        # Makes one positive pixel as important as all negative pixels together
-        positive_counterWeight = torch.tensor([float(H * W - 1)], device=device, dtype=center_preds.dtype) 
+        # Makes the ground truth pixel (where object center is) as important as all not-gt pixels together
+        k = 8.0  # Scaling factor to reduce the weight of positive samples to increase stability (TODO: Make this a tuneable hyperparameter)
+        positive_counterWeight = torch.tensor([float((H * W - 1)/k)], device=device, dtype=center_preds.dtype) 
 
         # Center loss calculation using binary cross-entropy with logits ("raw" model output)
         Loss_center = F.binary_cross_entropy_with_logits(
