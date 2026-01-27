@@ -164,8 +164,8 @@ def visualize_pred_vs_gt(model: torch.nn.Module, loader: DataLoader, config: Run
     x_vis = _denormalize_for_tb(x, config).detach().cpu()
 
     # Colors (RGB) for markers
-    column_gt = torch.tensor([0.0, 1.0, 0.0])  # Green
-    column_predicted = torch.tensor([1.0, 0.0, 0.0])  # Red
+    color_gt = torch.tensor([0.0, 1.0, 0.0])  # Green
+    color_predicted = torch.tensor([1.0, 0.0, 0.0])  # Red
 
     number_images = min(images2visualize, B)                        # Number of images to visualize
     imgs = []                                                       # Initialize list to hold images with drawn crosses
@@ -185,8 +185,8 @@ def visualize_pred_vs_gt(model: torch.nn.Module, loader: DataLoader, config: Run
         x_center_pd = predictedLabel_j * stride_S + stride_S // 2
 
         # Draw crosses via helper function
-        _draw_cross_chw(image, y_center_gt, x_center_gt, column_gt, cross_radius=6)
-        _draw_cross_chw(image, y_center_pd, x_center_pd, column_predicted, cross_radius=6)
+        _draw_cross_chw(image, y_center_gt, x_center_gt, color_gt, cross_radius=6)
+        _draw_cross_chw(image, y_center_pd, x_center_pd, color_predicted, cross_radius=6)
 
         imgs.append(image)
 
