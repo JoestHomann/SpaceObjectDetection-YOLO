@@ -63,6 +63,9 @@ from checkpointIO import save_checkpoint, load_checkpoint
 
 # For TensorBoard logging
 from torch.utils.tensorboard import SummaryWriter
+import numpy as np
+import matplotlib.pyplot as plt
+
 
 # ---------------------------------------------------------
 # DATALOADERS
@@ -215,6 +218,9 @@ def validate(
     correct_per_class = torch.zeros(num_classes, dtype=torch.long)
     total_per_class = torch.zeros(num_classes, dtype=torch.long)
 
+    # Confusion matrix counts
+    confusionMatrix = torch.zeros((num_classes, num_classes), dtype=torch.long) # Here are rows: true class and columns: predicted
+
     # Val loss accumulation (same keys as train_one_epoch)
     loss_sums = {"Loss_center": 0.0, "Loss_box": 0.0,
                  "Loss_class": 0.0, "Loss_total": 0.0}
@@ -258,6 +264,10 @@ def validate(
         cls_logits = cls_pred[torch.arange(B, device=device), :, i_hat, j_hat]
         cls_hat = torch.argmax(cls_logits, dim=1)
 
+        # Update confusion matrix
+        for trueLabel, predictedLabel in zip(cls_gt.view(-1), cls_hat.view(-1)):    # zip() to iterate over both tensors in parallel and view(-1) to flatten to 1D vector
+            confusionMatrix[int(trueLabel), int(predictedLabel)] += 1               # Increment the count for the corresponding cell in the confusion matrix
+
         correct += (cls_hat == cls_gt).sum().item()
         total += B
 
@@ -275,10 +285,15 @@ def validate(
     per_class_acc = (correct_per_class.float(
     ) / torch.clamp(total_per_class.float(), min=1.0)).cpu().tolist()
 
+    # Convert confusion matrix to numpy for easier handling outside torch
+    confusionMatrixAsNumpy = confusionMatrix.cpu().numpy()
+
+
     return {
         "accuracy": acc,
         "center_acc": center_acc,
         "per_class_acc": per_class_acc,
+        "confusion_matrix": confusionMatrixAsNumpy,
         **val_losses,
     }
 
@@ -295,7 +310,7 @@ def fit(cfg: RunConfig) -> None:
     - save last & best checkpoints
     """
     # TensorBoard Writer
-    writer = SummaryWriter(log_dir="runs/CeSSODeC") # TODO: Make dynamic with timestamp or so
+    writer = SummaryWriter(log_dir="runs/tensorboard") # TODO: Make dynamic with timestamp or so
 
 
     torch.manual_seed(cfg.train.seed)  # Set seed for reproducibility
@@ -364,16 +379,32 @@ def fit(cfg: RunConfig) -> None:
         # TensorBoard logging
 
         # Train metrics
+        # Losses
         writer.add_scalar("train/Loss_total", train_metrics["Loss_total"], epoch)
         writer.add_scalar("train/Loss_center", train_metrics["Loss_center"], epoch)
         writer.add_scalar("train/Loss_box", train_metrics["Loss_box"], epoch)
         writer.add_scalar("train/Loss_class", train_metrics["Loss_class"], epoch)
+        
         # Val metrics
+        # Losses
         writer.add_scalar("val/Loss_total", val_metrics["Loss_total"], epoch)
+        writer.add_scalar("val/Loss_center", val_metrics["Loss_center"], epoch)
+        writer.add_scalar("val/Loss_box", val_metrics["Loss_box"], epoch)
+        writer.add_scalar("val/Loss_class", val_metrics["Loss_class"], epoch)
+        # Accuracies
         writer.add_scalar("val/accuracy", val_metrics["accuracy"], epoch)
         writer.add_scalar("val/center_acc", val_metrics["center_acc"], epoch)
         writer.flush() # Ensure data is written to disk
 
+        # Confusion Matrix
+        class_names = getattr(cfg.model, "class_names", None) # List of class names, if empty read from config
+        if class_names is None:
+            class_names = [f"class_{i}" for i in range(int(getattr(cfg.model, "num_classes", 11)))]
+
+        figure_confusionMatrix = plotConfMatrix(val_metrics["confusion_matrix"], class_names)   # Plot confusion matrix via helper function
+        writer.add_figure("val/confusion_matrix", figure_confusionMatrix, epoch)                # Log confusion matrix figure to TensorBoard
+        plt.close(figure_confusionMatrix)   # Close the figure to free memory
+        writer.flush()                      # Ensure data is written to disk
 
         acc = val_metrics["accuracy"]
 
@@ -408,36 +439,41 @@ def fit(cfg: RunConfig) -> None:
 
     return
 
+def plotConfMatrix(confusion_matrix: np.ndarray, class_names: list[str], normalize: bool = True):
+    """
+    Plots a confusion matrix using Matplotlib.
+
+    Args:
+        confusion_matrix (np.ndarray): The confusion matrix to plot.
+        class_names (list[str]): List of class names corresponding to the matrix indices.
+
+    Returns:
+        plt.Figure: The Matplotlib figure containing the confusion matrix plot.
+    """
+    confusionMatrix = confusion_matrix.astype(np.float64)
+
+    # Normalize the confusion matrix if specified
+    if normalize:
+        row_sums = confusionMatrix.sum(axis=1, keepdims=True)               # Sum of each row (true labels)
+        confusionMatrix = confusionMatrix / np.clip(row_sums, 1.0, None)    # Normalize each row to sum to 1, avoid division by zero by clipping
 
 
+    figure, axes = plt.subplots(figsize=(8, 8))                 # Set figure size and axes
+    imageObject = axes.imshow(confusionMatrix, interpolation='nearest')  # Display the confusion matrix as an image with nearest neighbor interpolation
 
-# def build_model_loss_optim(cfg: RunConfig) -> Tuple[CenterSingleObjNet, CenterSingleObjLoss, torch.optim.Optimizer]:
-#     """
-#     Build model, loss function, and optimizer.
+    axes.set_title("Confusion Matrix"+(" (normalized)" if normalize else ""))   # Set title of the plot
+    figure.colorbar(imageObject, ax=axes, fraction=0.046, pad=0.04)  # Add colorbar to the plot
 
-#     Inputs:
-#       cfg: RunConfig
+    tick_marks = np.arange(len(class_names))                     # Create tick marks for each class
+    axes.set_xticks(tick_marks)                                  # Set x-ticks
+    axes.set_yticks(tick_marks)                                  # Set y-ticks
+    axes.set_xticklabels(class_names, rotation=45, ha="right")   # Set x-tick labels with rotation
+    axes.set_yticklabels(class_names)                            # Set y-tick labels
 
-#     Outputs:
-#       (model, loss_fn, optimizer)
-#     """
-#     device = torch.device(cfg.train.device)
+    axes.set_ylabel("True label")                                # Set y-axis label
+    axes.set_xlabel("Predicted label")                           # Set x-axis label
 
-#     model = CeSSODeCModel(cfg.model, cfg.grid).to(device)
-#     loss_fn = SingleObjectLoss(eps=1e-6, box_weight=5.0).to(device)
+    figure.tight_layout()                                        # Adjust layout to prevent overlap
 
-#     optimizer = torch.optim.AdamW(
-#         model.parameters(),
-#         lr=cfg.train.lr,
-#         weight_decay=cfg.train.weight_decay,
-#     )
+    return figure
 
-#     return model, loss_fn, optimizer TODO: Braucht man die Funktion evtl?
-
-
-# def _set_seed(seed: int) -> None:
-#     # Make runs more reproducible.
-#     random.seed(seed)
-#     torch.manual_seed(seed)
-#     if torch.cuda.is_available():
-#         torch.cuda.manual_seed_all(seed) TODO: Funktion kann implementiert werden, um Seed besser zu setzen
