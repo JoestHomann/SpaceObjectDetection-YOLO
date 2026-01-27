@@ -22,16 +22,16 @@ Refactored into a **modular training package** with clear separation of concerns
 ```
 training/
 ├── __init__.py              (33 lines)   - Module exports
-├── data_utils.py            (66 lines)   - DataLoader building
-├── metrics.py              (134 lines)   - Metrics calculation utilities
-├── train_loop.py           (114 lines)   - Training epoch execution
-├── validation.py           (144 lines)   - Validation loop
-├── tensorboard_logger.py    (94 lines)   - TensorBoard logging
-├── trainer.py              (166 lines)   - Main orchestrator
+├── data_utils.py            (67 lines)   - DataLoader building
+├── metrics.py              (135 lines)   - Metrics calculation utilities
+├── train_loop.py           (115 lines)   - Training epoch execution
+├── validation.py           (145 lines)   - Validation loop
+├── tensorboard_logger.py    (95 lines)   - TensorBoard logging
+├── trainer.py              (167 lines)   - Main orchestrator
 └── README.md                             - Documentation
 ```
 
-**Total: 751 lines** (including comprehensive documentation)
+**Total: 757 lines** (including comprehensive documentation)
 
 The original `train.py` is now just **48 lines** - a simple re-export wrapper for backwards compatibility.
 
@@ -146,13 +146,13 @@ from training import fit, train_one_epoch, validate, build_loaders
 | **Old: train.py** | **486** | **Everything** |
 | **New: train.py** | **48** | **Re-exports (backwards compat)** |
 | training/__init__.py | 33 | Module initialization |
-| training/data_utils.py | 66 | DataLoader building |
-| training/metrics.py | 134 | Metrics utilities |
-| training/train_loop.py | 114 | Training epoch |
-| training/validation.py | 144 | Validation loop |
-| training/tensorboard_logger.py | 94 | TensorBoard logging |
-| training/trainer.py | 166 | Main orchestrator |
-| **New: Total modules** | **751** | **Well-documented** |
+| training/data_utils.py | 67 | DataLoader building |
+| training/metrics.py | 135 | Metrics utilities |
+| training/train_loop.py | 115 | Training epoch |
+| training/validation.py | 145 | Validation loop |
+| training/tensorboard_logger.py | 95 | TensorBoard logging |
+| training/trainer.py | 167 | Main orchestrator |
+| **New: Total modules** | **757** | **Well-documented** |
 
 ## Conclusion
 The refactoring successfully addresses the issue: "*Ich blick selber kaum durch was da abgeht*" (I can barely understand what's happening there).

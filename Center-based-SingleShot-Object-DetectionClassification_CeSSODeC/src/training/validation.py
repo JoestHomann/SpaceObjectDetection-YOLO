@@ -72,7 +72,7 @@ def validate(
     total_per_class = torch.zeros(num_classes, dtype=torch.long)
 
     # Confusion matrix counts (rows: true class, columns: predicted)
-    confusionMatrix = torch.zeros((num_classes, num_classes), dtype=torch.long)
+    confusion_matrix = torch.zeros((num_classes, num_classes), dtype=torch.long)
 
     # Val loss accumulation (same keys as train_one_epoch)
     loss_sums = {"Loss_center": 0.0, "Loss_box": 0.0,
@@ -107,7 +107,7 @@ def validate(
         center_correct += calculate_center_accuracy(i_hat, j_hat, ij_gt)
 
         # Update confusion matrix
-        update_confusion_matrix(cls_pred, i_hat, j_hat, cls_gt, confusionMatrix, device)
+        update_confusion_matrix(cls_pred, i_hat, j_hat, cls_gt, confusion_matrix, device)
 
         # Classification accuracy at predicted center
         B = x.shape[0]
@@ -133,12 +133,12 @@ def validate(
                      torch.clamp(total_per_class.float(), min=1.0)).cpu().tolist()
 
     # Convert confusion matrix to numpy for easier handling outside torch
-    confusionMatrixAsNumpy = confusionMatrix.cpu().numpy()
+    confusion_matrix_numpy = confusion_matrix.cpu().numpy()
 
     return {
         "accuracy": acc,
         "center_acc": center_acc,
         "per_class_acc": per_class_acc,
-        "confusion_matrix": confusionMatrixAsNumpy,
+        "confusion_matrix": confusion_matrix_numpy,
         **val_losses,
     }

@@ -129,6 +129,6 @@ def update_confusion_matrix(cls_pred: torch.Tensor, i_hat: torch.Tensor,
     cls_hat = torch.argmax(cls_logits, dim=1)
 
     for true_label, predicted_label in zip(cls_gt.view(-1), cls_hat.view(-1)):
-        tL = int(true_label.item())
-        pL = int(predicted_label.item())
-        confusion_matrix[tL, pL] += 1
+        true_class = int(true_label.item())
+        pred_class = int(predicted_label.item())
+        confusion_matrix[true_class, pred_class] += 1
