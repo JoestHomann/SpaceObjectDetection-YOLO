@@ -25,7 +25,8 @@
 #   None
 #
 # Revision history:
-#   None
+#   - Added TensorBoard logging (25-Jan-2026, J. Homann)
+#   - Added more TB logging and confusion matrix(27-Jan-2026, J. Homann)
 #
 # Implemented in VSCode 1.108.1
 # 2026 in the Applied Machine Learning Course Project
@@ -65,6 +66,7 @@ from checkpointIO import save_checkpoint, load_checkpoint
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import matplotlib.pyplot as plt
+import visualizationHelpers as vh
 
 
 # ---------------------------------------------------------
@@ -266,7 +268,9 @@ def validate(
 
         # Update confusion matrix
         for trueLabel, predictedLabel in zip(cls_gt.view(-1), cls_hat.view(-1)):    # zip() to iterate over both tensors in parallel and view(-1) to flatten to 1D vector
-            confusionMatrix[int(trueLabel), int(predictedLabel)] += 1               # Increment the count for the corresponding cell in the confusion matrix
+            tL = int(trueLabel.item())
+            pL = int(predictedLabel.item())
+            confusionMatrix[tL, pL] += 1               # Increment the count for the corresponding cell in the confusion matrix
 
         correct += (cls_hat == cls_gt).sum().item()
         total += B
@@ -401,10 +405,17 @@ def fit(cfg: RunConfig) -> None:
         if class_names is None:
             class_names = [f"class_{i}" for i in range(int(getattr(cfg.model, "num_classes", 11)))]
 
-        figure_confusionMatrix = plotConfMatrix(val_metrics["confusion_matrix"], class_names)   # Plot confusion matrix via helper function
+        figure_confusionMatrix = vh.plotConfMatrix(val_metrics["confusion_matrix"], class_names)   # Plot confusion matrix via helper function
         writer.add_figure("val/confusion_matrix", figure_confusionMatrix, epoch)                # Log confusion matrix figure to TensorBoard
         plt.close(figure_confusionMatrix)   # Close the figure to free memory
         writer.flush()                      # Ensure data is written to disk
+
+        # Predictions vs Ground Truth Visualization
+        if epoch % 1 == 0:  # Log every n epochs to save space
+            pred_vs_gt_visualization = vh.visualize_pred_vs_gt(model, loaders["val"], cfg, images2visualize=4)  # Visualize predictions vs ground truth via helper function
+            writer.add_image("val/pred_vs_gt", pred_vs_gt_visualization, epoch)  # Log the image grid to TensorBoard
+            writer.flush()  # Ensure data is written to disk
+
 
         acc = val_metrics["accuracy"]
 
@@ -439,41 +450,5 @@ def fit(cfg: RunConfig) -> None:
 
     return
 
-def plotConfMatrix(confusion_matrix: np.ndarray, class_names: list[str], normalize: bool = True):
-    """
-    Plots a confusion matrix using Matplotlib.
 
-    Args:
-        confusion_matrix (np.ndarray): The confusion matrix to plot.
-        class_names (list[str]): List of class names corresponding to the matrix indices.
-
-    Returns:
-        plt.Figure: The Matplotlib figure containing the confusion matrix plot.
-    """
-    confusionMatrix = confusion_matrix.astype(np.float64)
-
-    # Normalize the confusion matrix if specified
-    if normalize:
-        row_sums = confusionMatrix.sum(axis=1, keepdims=True)               # Sum of each row (true labels)
-        confusionMatrix = confusionMatrix / np.clip(row_sums, 1.0, None)    # Normalize each row to sum to 1, avoid division by zero by clipping
-
-
-    figure, axes = plt.subplots(figsize=(8, 8))                 # Set figure size and axes
-    imageObject = axes.imshow(confusionMatrix, interpolation='nearest')  # Display the confusion matrix as an image with nearest neighbor interpolation
-
-    axes.set_title("Confusion Matrix"+(" (normalized)" if normalize else ""))   # Set title of the plot
-    figure.colorbar(imageObject, ax=axes, fraction=0.046, pad=0.04)  # Add colorbar to the plot
-
-    tick_marks = np.arange(len(class_names))                     # Create tick marks for each class
-    axes.set_xticks(tick_marks)                                  # Set x-ticks
-    axes.set_yticks(tick_marks)                                  # Set y-ticks
-    axes.set_xticklabels(class_names, rotation=45, ha="right")   # Set x-tick labels with rotation
-    axes.set_yticklabels(class_names)                            # Set y-tick labels
-
-    axes.set_ylabel("True label")                                # Set y-axis label
-    axes.set_xlabel("Predicted label")                           # Set x-axis label
-
-    figure.tight_layout()                                        # Adjust layout to prevent overlap
-
-    return figure
 
