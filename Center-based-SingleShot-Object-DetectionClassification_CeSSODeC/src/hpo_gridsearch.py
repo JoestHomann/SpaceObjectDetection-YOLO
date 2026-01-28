@@ -69,8 +69,8 @@ for lr, weight_decay, sigma, k in itertools.product(
     hpo_run_dir.mkdir(parents=True, exist_ok=True)
     
     # Define checkpoint paths
-    last_ckpt = hpo_run_dir / "last.pth"
-    best_ckpt = hpo_run_dir / "best.pth"
+    last_checkpoint = hpo_run_dir / "last.pth"
+    best_checkpoint = hpo_run_dir / "best.pth"
     
     # Build command to run training with current hyperparameters
     command = [
@@ -81,15 +81,15 @@ for lr, weight_decay, sigma, k in itertools.product(
         "--weight_decay", str(weight_decay),
         "--gaussHm_sigma", str(sigma),
         "--BCE_scale", str(k),
-        "--checkpointPath_last", str(last_ckpt),
-        "--checkpointPath_best", str(best_ckpt),
+        "--checkpointPath_last", str(last_checkpoint),
+        "--checkpointPath_best", str(best_checkpoint),
     ]
     # Print HPO run details and execute the training command as a subprocess
     print(f"[{hpo_run_name}] lr={lr} weight_decay={weight_decay} sigma={sigma} k={k}")
     subprocess.run(command, check=True)
 
     # Read best_acc from checkpoint meta
-    checkpoint = torch.load(best_ckpt, map_location="cpu")
+    checkpoint = torch.load(best_checkpoint, map_location="cpu")
     meta = checkpoint.get("meta", {})
     best_acc = float(meta.get("best_acc", 0.0))
 
