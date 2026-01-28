@@ -47,7 +47,8 @@ from config import GridConfig, ModelConfig
 @dataclass(frozen=True)
 class InferConfig:
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    normalize: str = "imagenet"  # Options: "imagenet", "none"
+    normalize: str = "resnet18_imagenet"  # Options: "resnet18_imagenet", "none"
+    
     # Number of top detections to consider (usually 1)
     topk: int = 1
 
@@ -81,7 +82,7 @@ def preprocess_image(img_path: str, imgsz: int, normalize: str) -> torch.Tensor:
         img = img.resize((imgsz, imgsz))
         img_tensor = TF.to_tensor(img)  # Convert to tensor [0, 1]
 
-        if normalize.lower() == "imagenet":
+        if normalize.lower() == "resnet18_imagenet":
             img_tensor = _imagenet_normalize(img_tensor)
 
         return img_tensor.unsqueeze(0)  # Add batch dimension
