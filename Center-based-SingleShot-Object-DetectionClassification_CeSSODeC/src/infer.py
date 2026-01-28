@@ -109,7 +109,7 @@ def load_model_for_inference(
     # Initialize model architecture
     model = CeSSODeCModel(model_cfg=model_cfg, grid_cfg=grid_cfg)
 
-    ckpt = torch.load(ckpt_path, map_location=device)  # ckpt = checkpoint
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)   # ckpt = checkpoint, weights_only=False to avoid torch.load error with newer PyTorch versions
 
     if isinstance(ckpt, dict):  # check for different checkpoint formats
         if 'model_state_dict' in ckpt:
