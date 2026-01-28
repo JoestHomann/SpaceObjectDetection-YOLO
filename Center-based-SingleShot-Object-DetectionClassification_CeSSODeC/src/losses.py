@@ -35,6 +35,43 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+def gaussian_heatmap(heatmap, y_center, x_center, sigma):
+    """
+    heatmap with gaussian "heat" distribution around the center
+
+    Input:
+        heatmap: (H,W)
+        y_center: int grid loc y
+        x_center: int grid loc x
+        sigma: float        
+    """
+    H, W = heatmap.shape    # Getting heatmap shape
+    radius =int(3 * sigma)  # Defines gaussian radius
+    
+    # Defining the square area around the center where the gaussian will be applied
+    y0 = max(0, y_center - radius)          # clamping, and corner values at gaussian radius 
+    y1 = min(H, y_center + radius + 1)      
+    x0 = max(0, x_center - radius)
+    x1 = min(W, x_center + radius +1)
+
+    # Creating meshgrid for the defined area
+    yy, xx = torch.meshgrid(
+        torch.arange(y0, y1, device=heatmap.device),
+        torch.arange(x0, x1, device=heatmap.device),
+        indexing = "ij"
+    )
+    
+    # Calculating the Gaussian values
+    gaussian = torch.exp(
+        -((yy-y_center)**2 + (xx-x_center)**2)/(2*sigma**2)
+    )
+
+    # Updating the heatmap with the maximum values between existing and new gaussian values
+    heatmap[y0:y1, x0:x1] = torch.maximum(
+        heatmap[y0:y1, x0:x1],
+        gaussian
+    )
+
 class SingleObjectLoss(nn.Module):
     """
     Calculates the loss for the centerpoint, the size of the bounding box, and the class label.
@@ -71,7 +108,6 @@ class SingleObjectLoss(nn.Module):
         self.box_weight = box_weight                                    # box weight to balance the losses to more exact boxes (higher value = more exact boxes) TODO: tune
         self.smooth_l1_loss = nn.SmoothL1Loss(reduction='none')
         self.cross_entropy_loss = nn.CrossEntropyLoss(reduction='none')
-
 
     def forward(
             self,
@@ -122,12 +158,21 @@ class SingleObjectLoss(nn.Module):
         center_target = torch.zeros((B, 1, H, W),               # Fill matrix/tensor of size (B,1,H,W) with zeros
                                      device=device,
                                      dtype=center_preds.dtype) 
-        center_target[b, 0, i, j] = 1.0                         # Set ground truth center locations (i, j) in the matrix to 1 for each batch element b   
+        center_target = torch.zeros((B, 1, H, W), device = device, dtype=center_preds.dtype)        # Initialize target heatmap with zeros
+
+        standardDeviation = 2.0  # Standard deviation for Gaussian (TODO: Make this a tuneable hyperparameter)
+        # Create Gaussian heatmaps around ground truth center locations
+        for batch_index in range(B):
+            gaussian_heatmap(center_target[batch_index, 0],
+                             y_center = int(i[batch_index].item()),  # y_center = grid row ground truth index, item() converts single-value tensor to int
+                             x_center = int(j[batch_index].item()),  # x_center = grid column ground truth index
+                             sigma=standardDeviation)                # sigma = standard deviation of the Gaussian
+    
 
         # Positive counter weight to balance out the many negative samples
         # Makes the ground truth pixel (where object center is) as important as all not-gt pixels together
-        k = 16.0  # Scaling factor to reduce the weight of positive samples to increase stability (TODO: Make this a tuneable hyperparameter)
-        positive_counterWeight = torch.tensor([float((H * W - 1)/k)], device=device, dtype=center_preds.dtype) 
+        k = 10.0  # Scaling factor to reduce the weight of positive samples to increase stability (TODO: Make this a tuneable hyperparameter)
+        positive_counterWeight = torch.tensor([float((H * W)/k)], device=device, dtype=center_preds.dtype) 
 
         # Center loss calculation using binary cross-entropy with logits ("raw" model output)
         Loss_center = F.binary_cross_entropy_with_logits(
