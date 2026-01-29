@@ -8,7 +8,7 @@
 runs/
 
 # Infer:runs outpus
-infer_runs/
+src/infer_runs/Images_predict/
 
 # Python bytecode
 __pycache__/
