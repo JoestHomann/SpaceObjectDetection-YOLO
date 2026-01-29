@@ -283,6 +283,11 @@ def validate(
     loss_sums = {"Loss_center": 0.0, "Loss_box": 0.0,
                  "Loss_class": 0.0, "Loss_total": 0.0}
     total_samples = 0
+    # Initialize variables for acc tracking
+    p_gt_sum = 0.0
+    p_max_sum = 0.0
+    p_bg_sum = 0.0
+    n_samples = 0
 
     for x, ij_gt, bbox_gt_norm, cls_gt in loader:
         x = x.to(device)
@@ -291,6 +296,19 @@ def validate(
         cls_gt = cls_gt.to(device)
 
         center_pred, box_pred, cls_pred = model(x)
+
+        # Average probabilities calculation
+        B = x.shape[0]
+        probs = torch.sigmoid(center_pred[:, 0])  # logits -> probs
+
+        ar = torch.arange(B, device=device)
+        i_gt = ij_gt[:, 0]
+        j_gt = ij_gt[:, 1]
+
+        p_gt_sum += probs[ar, i_gt, j_gt].sum().item()
+        p_max_sum += probs.view(B, -1).max(dim=1).values.sum().item()
+        p_bg_sum += probs.mean(dim=(1, 2)).sum().item()
+        n_samples += B
 
         # Val losses
         losses = loss_fn(
@@ -357,6 +375,9 @@ def validate(
         "per_class_acc": per_class_acc,
         "confusion_matrix": confusionMatrixAsNumpy,
         **val_losses,
+        "p_gt_avg": p_gt_sum / max(n_samples, 1),
+        "p_max_avg": p_max_sum / max(n_samples, 1),
+        "p_bg_avg": p_bg_sum / max(n_samples, 1),
     }
 
 
