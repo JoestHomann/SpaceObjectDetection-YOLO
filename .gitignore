@@ -8,7 +8,8 @@
 runs/
 
 # Infer:runs outpus
-src/infer_runs/Images_predict/
+Center-based-SingleShot-Object-DetectionClassification_CeSSODeC/src/infer_runs
+*.jpg
 
 # Python bytecode
 __pycache__/
