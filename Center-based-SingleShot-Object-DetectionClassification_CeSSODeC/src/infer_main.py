@@ -188,7 +188,7 @@ def main() -> None:
     # Save inference results for each image and visualize them
     for res in results:
         img_name = Path(res["input_path"]).name
-        save_path = output_dir / f"inference_result_{img_name}.jpg"
+        save_path = output_dir / f"inference_result_{img_name}"
 
         # Visualize via helper function
         visualize_single_inference(
