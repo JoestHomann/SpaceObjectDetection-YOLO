@@ -406,6 +406,13 @@ def visualize_single_inference(
     x2 = x_center_pred + w_px / 2
     y2 = y_center_pred + h_px / 2
 
+    # Clip bounding box to image boundaries
+    _, H, W = image.shape
+    x1 = float(max(0.0, min(x1, W - 1.0)))
+    y1 = float(max(0.0, min(y1, H - 1.0)))
+    x2 = float(max(0.0, min(x2, W - 1.0)))
+    y2 = float(max(0.0, min(y2, H - 1.0)))
+
     # Draw bounding box
     boundingBox = torch.tensor([[x1, y1, x2, y2]], dtype=torch.float32)
 
