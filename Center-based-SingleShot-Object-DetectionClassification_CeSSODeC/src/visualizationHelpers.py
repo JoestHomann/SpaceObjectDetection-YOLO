@@ -372,7 +372,7 @@ def visualize_single_inference(
         stride_S: Grid stride in pixels
         imgsz: Input image size used during inference
         class_names: Optional list of class names
-        save_path: If given, saves figure instead of showing it
+        save_path: Path where the figure will be saved. This argument is required.
     """
 
     # Read image for torchvision, so that we can draw on it
