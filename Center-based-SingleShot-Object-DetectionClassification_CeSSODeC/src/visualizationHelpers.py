@@ -51,7 +51,7 @@ import matplotlib.patches as patches
 
 
 # Plotting function for confusion matrix
-def plotConfMatrix(confusion_matrix: np.ndarray, class_names: list[str], normalize: bool = True):
+def plotConfMatrix(confusion_matrix: np.ndarray, class_names: list[str]):
     """
     Plots a confusion matrix using Matplotlib.
 
@@ -64,16 +64,19 @@ def plotConfMatrix(confusion_matrix: np.ndarray, class_names: list[str], normali
     """
     confusionMatrix = confusion_matrix.astype(np.float64)
 
-    # Normalize the confusion matrix if specified
-    if normalize:
-        row_sums = confusionMatrix.sum(axis=1, keepdims=True)               # Sum of each row (true labels)
-        confusionMatrix = confusionMatrix / np.clip(row_sums, 1.0, None)    # Normalize each row to sum to 1, avoid division by zero by clipping
+    # Always normalize the confusion matrix
+    row_sums = confusionMatrix.sum(axis=1, keepdims=True)               # Sum of each row (true labels)
+    confusionMatrix = confusionMatrix / np.clip(row_sums, 1.0, None)    # Normalize each row to sum to 1, avoid division by zero by clipping
 
 
     figure, axes = plt.subplots(figsize=(8, 8))                 # Set figure size and axes
-    imageObject = axes.imshow(confusionMatrix, interpolation='nearest')  # Display the confusion matrix as an image with nearest neighbor interpolation
+    imageObject = axes.imshow(confusionMatrix,                  # Display the confusion matrix as an image 
+                            interpolation='nearest',            # Use nearest neighbor interpolation
+                            cmap = plt.colormaps["Blues"],      # Use blue colormap
+                            vmin=0.0, vmax=1.0                  # Set color scale from 0 to 1
+                               )         
 
-    axes.set_title("Confusion Matrix"+(" (normalized)" if normalize else ""))   # Set title of the plot
+    axes.set_title("Confusion Matrix (normalized)")   # Set title of the plot
     figure.colorbar(imageObject, ax=axes, fraction=0.046, pad=0.04)  # Add colorbar to the plot
 
     tick_marks = np.arange(len(class_names))                     # Create tick marks for each class
@@ -84,6 +87,14 @@ def plotConfMatrix(confusion_matrix: np.ndarray, class_names: list[str], normali
 
     axes.set_ylabel("True label")                                # Set y-axis label
     axes.set_xlabel("Predicted label")                           # Set x-axis label
+
+    # Write values/probabilities to cells
+    for i in range(confusionMatrix.shape[0]):
+        for j in range(confusionMatrix.shape[1]):
+            value = confusionMatrix[i, j]
+            if value > 0.0:
+                axes.text(j, i, f"{value:.2f}", ha="center", va="center", color="black")
+    
 
     figure.tight_layout()                                        # Adjust layout to prevent overlap
 
