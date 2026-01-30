@@ -400,7 +400,7 @@ def visualize_single_inference(
     w_px = w * imgsz
     h_px = h * imgsz
 
-    # Calculate 
+    # Calculate bounding box corner coordinates (top-left and bottom-right) in pixels
     x1 = x_center_pred - w_px / 2
     y1 = y_center_pred - h_px / 2
     x2 = x_center_pred + w_px / 2
